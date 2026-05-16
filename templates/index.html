@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>北航校车票务</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', sans-serif; }
+    .fade-in { animation: fadeIn 0.25s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .spin { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .slide-up { animation: slideUp 0.3s cubic-bezier(0.4,0,0.2,1); }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
+    .toast { animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards; }
+    @keyframes toastIn  { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: none; } }
+    @keyframes toastOut { to { opacity: 0; transform: translateY(-12px); } }
+    input:focus { outline: none; }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+
+<!-- ── Toast ─────────────────────────────────────── -->
+<div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none" style="min-width:260px;max-width:90vw"></div>
+
+<!-- ── Login Screen ───────────────────────────────── -->
+<div id="login-screen" class="hidden min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-sm fade-in">
+    <!-- Logo -->
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg mb-4">
+        <svg class="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+        </svg>
+      </div>
+      <h1 class="text-2xl font-bold text-slate-800">北航校车票务</h1>
+      <p class="text-slate-500 text-sm mt-1">智慧校车班次查询与监控</p>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-white rounded-2xl shadow-sm p-6 space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-slate-500 mb-1.5">学号</label>
+        <input id="inp-sid" type="text" inputmode="numeric" placeholder="请输入学号"
+          class="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400
+                 focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition text-sm" />
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-500 mb-1.5">密码</label>
+        <input id="inp-pwd" type="password" placeholder="请输入密码"
+          class="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400
+                 focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition text-sm" />
+      </div>
+      <button id="btn-login"
+        onclick="doLogin()"
+        class="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-semibold
+               shadow-md shadow-blue-200 active:opacity-90 transition text-sm flex items-center justify-center gap-2">
+        <span id="login-btn-text">登 录</span>
+        <svg id="login-spinner" class="hidden w-4 h-4 spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="white" stroke-width="4"/>
+          <path class="opacity-75" fill="white" d="M4 12a8 8 0 018-8v8H4z"/>
+        </svg>
+      </button>
+    </div>
+
+    <p class="text-center text-xs text-slate-400 mt-5">使用北航统一身份认证登录</p>
+  </div>
+</div>
+
+<!-- ── Main App ────────────────────────────────────── -->
+<div id="app-screen" class="hidden flex flex-col min-h-screen max-w-lg mx-auto">
+
+  <!-- Header -->
+  <header class="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-4 pt-10 pb-4 shadow-md">
+    <div class="flex items-center justify-between">
+      <div>
+        <h1 class="text-lg font-bold">北航校车票务</h1>
+        <p class="text-blue-100 text-xs mt-0.5">学号: <span id="header-sid" class="font-medium"></span></p>
+      </div>
+      <button onclick="doLogout()"
+        class="text-blue-100 text-xs border border-blue-300/40 rounded-lg px-3 py-1.5 active:bg-blue-400/30 transition">
+        退出登录
+      </button>
+    </div>
+  </header>
+
+  <!-- Tab Bar -->
+  <nav class="bg-white border-b border-slate-100 flex shadow-sm sticky top-0 z-10">
+    <button onclick="switchTab('schedule')" id="tab-schedule"
+      class="tab-btn flex-1 py-3 text-sm font-medium text-blue-600 border-b-2 border-blue-500 flex items-center justify-center gap-1.5 transition">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+      </svg>
+      班次查询
+    </button>
+    <button onclick="switchTab('monitor')" id="tab-monitor"
+      class="tab-btn flex-1 py-3 text-sm font-medium text-slate-400 flex items-center justify-center gap-1.5 transition">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+      </svg>
+      监控列表
+      <span id="monitor-badge" class="hidden bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold"></span>
+    </button>
+    <button onclick="switchTab('settings')" id="tab-settings"
+      class="tab-btn flex-1 py-3 text-sm font-medium text-slate-400 flex items-center justify-center gap-1.5 transition">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+      </svg>
+      设置
+    </button>
+  </nav>
+
+  <!-- ── Schedule Tab ───────────────────────────────────────── -->
+  <div id="panel-schedule" class="flex-1 overflow-y-auto scrollbar-hide p-4 space-y-3">
+
+    <!-- Filter bar -->
+    <div class="bg-white rounded-2xl p-3 shadow-sm space-y-3">
+      <!-- Direction selector -->
+      <div class="flex gap-2">
+        <button onclick="setDirection('学院路','沙河')" id="dir-btn-1"
+          class="dir-btn flex-1 py-2 rounded-xl text-xs font-semibold bg-blue-500 text-white transition shadow-sm shadow-blue-200">
+          学院路 → 沙河
+        </button>
+        <button onclick="setDirection('沙河','学院路')" id="dir-btn-2"
+          class="dir-btn flex-1 py-2 rounded-xl text-xs font-semibold bg-slate-100 text-slate-500 transition">
+          沙河 → 学院路
+        </button>
+      </div>
+      <!-- Date selector -->
+      <div class="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1" id="date-tabs"></div>
+    </div>
+
+    <!-- Schedule list -->
+    <div id="schedule-list" class="space-y-2.5"></div>
+  </div>
+
+  <!-- ── Monitor Tab ────────────────────────────────────────── -->
+  <div id="panel-monitor" class="hidden flex-1 overflow-y-auto scrollbar-hide p-4 space-y-2.5">
+    <div id="monitor-list"></div>
+    <div id="monitor-empty" class="hidden text-center py-16 text-slate-400">
+      <svg class="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+          d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+      </svg>
+      <p class="text-sm">暂无监控任务</p>
+      <p class="text-xs mt-1 text-slate-300">在班次查询中点击「监控」按钮添加</p>
+    </div>
+  </div>
+
+  <!-- ── Settings Tab ───────────────────────────────────────── -->
+  <div id="panel-settings" class="hidden flex-1 overflow-y-auto scrollbar-hide p-4">
+    <div class="bg-white rounded-2xl shadow-sm p-5 space-y-4 fade-in">
+      <div>
+        <h2 class="font-semibold text-slate-700 text-sm">Bark 通知配置</h2>
+        <p class="text-xs text-slate-400 mt-1">输入您的 Bark URL，有空位时自动推送通知</p>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-500 mb-1.5">Bark URL</label>
+        <input id="inp-bark" type="url" placeholder="https://api.day.app/your_token 或自定义服务器"
+          class="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400
+                 focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition text-sm" />
+        <p class="text-[11px] text-slate-400 mt-1.5">示例: https://api.day.app/xxxxxxxxxxx</p>
+      </div>
+      <button onclick="saveBarkUrl()"
+        class="w-full py-3 rounded-xl bg-blue-500 text-white text-sm font-semibold active:opacity-90 transition">
+        保存配置
+      </button>
+    </div>
+
+    <div class="bg-white rounded-2xl shadow-sm p-5 mt-3 space-y-3 fade-in">
+      <h2 class="font-semibold text-slate-700 text-sm">关于</h2>
+      <div class="text-xs text-slate-500 space-y-1.5">
+        <p>• 班次信息每次查询实时获取</p>
+        <p>• 监控任务每 10 秒检查一次座位</p>
+        <p>• 发现空位后自动停止监控并推送通知</p>
+        <p>• Bark URL 按学号保存，下次登录自动加载</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Loading Overlay ─────────────────────────────────────── -->
+<div id="loading-overlay" class="hidden fixed inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-50">
+  <div class="flex flex-col items-center gap-3">
+    <svg class="w-8 h-8 text-blue-500 spin" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+    </svg>
+    <p class="text-sm text-slate-500" id="loading-msg">登录中…</p>
+  </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────
+const state = {
+  origin: '学院路',
+  dest: '沙河',
+  date: '',
+  availableDates: [],
+  schedules: [],
+  monitors: [],
+  barkUrl: '',
+  activeTab: 'schedule',
+};
+let monitorPollTimer = null;
+
+// ── Helpers ──────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const show = id => $(id).classList.remove('hidden');
+const hide = id => $(id).classList.add('hidden');
+
+function toast(msg, type = 'info') {
+  const colors = { info: 'bg-slate-800', success: 'bg-emerald-600', error: 'bg-red-600', warning: 'bg-amber-500' };
+  const el = document.createElement('div');
+  el.className = `toast pointer-events-auto px-4 py-2.5 rounded-xl text-white text-sm shadow-lg ${colors[type] || colors.info}`;
+  el.textContent = msg;
+  $('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3100);
+}
+
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  return r.json();
+}
+
+function loading(show_, msg = '加载中…') {
+  if (show_) { $('loading-msg').textContent = msg; show('loading-overlay'); }
+  else hide('loading-overlay');
+}
+
+// ── Auth ─────────────────────────────────────────────────────
+async function doLogin() {
+  const sid = $('inp-sid').value.trim();
+  const pwd = $('inp-pwd').value.trim();
+  if (!sid || !pwd) { toast('请输入学号和密码', 'warning'); return; }
+
+  $('btn-login').disabled = true;
+  show('login-spinner');
+  $('login-btn-text').textContent = '登录中…';
+  loading(true, '正在通过北航统一认证登录…');
+
+  try {
+    const res = await api('POST', '/api/login', { student_id: sid, password: pwd });
+    if (res.success) {
+      state.barkUrl = res.bark_url || '';
+      $('inp-bark').value = state.barkUrl;
+      $('header-sid').textContent = sid;
+      hide('login-screen');
+      show('app-screen');
+      document.getElementById('app-screen').classList.add('fade-in');
+      toast('登录成功', 'success');
+      initApp();
+    } else {
+      toast(res.message || '登录失败', 'error');
+    }
+  } catch (e) {
+    toast('网络错误，请重试', 'error');
+  } finally {
+    loading(false);
+    $('btn-login').disabled = false;
+    hide('login-spinner');
+    $('login-btn-text').textContent = '登 录';
+  }
+}
+
+async function doLogout() {
+  await api('POST', '/api/logout');
+  hide('app-screen');
+  show('login-screen');
+  $('inp-pwd').value = '';
+  if (monitorPollTimer) clearInterval(monitorPollTimer);
+  toast('已退出登录');
+}
+
+// ── Init ─────────────────────────────────────────────────────
+async function checkSession() {
+  const me = await api('GET', '/api/me');
+  if (me.logged_in) {
+    state.barkUrl = me.bark_url || '';
+    $('inp-bark').value = state.barkUrl;
+    $('header-sid').textContent = me.student_id;
+    hide('login-screen');
+    show('app-screen');
+    initApp();
+  } else {
+    show('login-screen');
+  }
+}
+
+function initApp() {
+  const today = new Date().toISOString().slice(0, 10);
+  state.date = today;
+  buildDateTabs();
+  loadSchedules();
+  startMonitorPoll();
+}
+
+// ── Date tabs ─────────────────────────────────────────────────
+function buildDateTabs() {
+  const today = new Date();
+  const dates = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    dates.push(d.toISOString().slice(0, 10));
+  }
+  state.availableDates = dates;
+  if (!state.date) state.date = dates[0];
+
+  const container = $('date-tabs');
+  container.innerHTML = '';
+  const labels = ['今天', '明天'];
+  dates.forEach((d, i) => {
+    const active = d === state.date;
+    const btn = document.createElement('button');
+    btn.className = `flex-shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium transition whitespace-nowrap
+      ${active ? 'bg-blue-500 text-white shadow-sm' : 'bg-slate-100 text-slate-500'}`;
+    const dateObj = new Date(d + 'T00:00:00');
+    const weekDays = ['周日','周一','周二','周三','周四','周五','周六'];
+    btn.textContent = labels[i] || weekDays[dateObj.getDay()];
+    btn.title = d;
+    btn.onclick = () => { state.date = d; buildDateTabs(); loadSchedules(); };
+    container.appendChild(btn);
+  });
+}
+
+// ── Schedule ──────────────────────────────────────────────────
+function setDirection(origin, dest) {
+  state.origin = origin;
+  state.dest = dest;
+  const isFirst = origin === '学院路';
+  $('dir-btn-1').className = `dir-btn flex-1 py-2 rounded-xl text-xs font-semibold transition
+    ${isFirst ? 'bg-blue-500 text-white shadow-sm shadow-blue-200' : 'bg-slate-100 text-slate-500'}`;
+  $('dir-btn-2').className = `dir-btn flex-1 py-2 rounded-xl text-xs font-semibold transition
+    ${!isFirst ? 'bg-blue-500 text-white shadow-sm shadow-blue-200' : 'bg-slate-100 text-slate-500'}`;
+  loadSchedules();
+}
+
+async function loadSchedules() {
+  const list = $('schedule-list');
+  list.innerHTML = `
+    <div class="flex items-center justify-center py-12 text-slate-400">
+      <svg class="w-5 h-5 spin mr-2" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+      </svg>
+      <span class="text-sm">加载班次信息…</span>
+    </div>`;
+
+  try {
+    const res = await api('GET',
+      `/api/schedules?origin=${encodeURIComponent(state.origin)}&destination=${encodeURIComponent(state.dest)}&date=${state.date}`);
+
+    if (res.code === 401) { toast('会话已过期，请重新登录', 'error'); showLogin(); return; }
+    if (!res.success) { list.innerHTML = `<div class="text-center py-12 text-slate-400 text-sm">${res.message || '获取失败'}</div>`; return; }
+
+    state.schedules = res.list || [];
+    renderSchedules();
+  } catch (e) {
+    list.innerHTML = `<div class="text-center py-12 text-slate-400 text-sm">网络错误，请重试</div>`;
+  }
+}
+
+function availColor(avail, total) {
+  if (avail <= 0) return 'text-slate-400';
+  if (avail <= 3) return 'text-amber-500';
+  return 'text-emerald-500';
+}
+
+function availBg(avail, total) {
+  if (avail <= 0) return 'bg-slate-100';
+  if (avail <= 3) return 'bg-amber-50 border-amber-100';
+  return 'bg-emerald-50 border-emerald-100';
+}
+
+function progressWidth(avail, total) {
+  if (!total) return 0;
+  return Math.round((avail / total) * 100);
+}
+
+function progressColor(avail) {
+  if (avail <= 0) return 'bg-slate-300';
+  if (avail <= 3) return 'bg-amber-400';
+  return 'bg-emerald-400';
+}
+
+function renderSchedules() {
+  const list = $('schedule-list');
+
+  if (!state.schedules.length) {
+    list.innerHTML = `
+      <div class="text-center py-16 text-slate-400">
+        <svg class="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+        </svg>
+        <p class="text-sm">当日暂无班次</p>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = state.schedules.map(s => {
+    const avail = s.open_seat_num - s.student_num - s.teacher_num;
+    const pct = progressWidth(avail, s.open_seat_num);
+    return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 slide-up border ${availBg(avail, s.open_seat_num)}">
+      <div class="flex items-start justify-between gap-3">
+        <div class="flex-1">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl font-bold text-slate-800">${s.depart_time}</span>
+            <span class="text-slate-400 text-xs">→ ${s.arrive_time}</span>
+          </div>
+          <div class="text-xs text-slate-500 mt-0.5">${s.up_origin_name} → ${s.up_terminal_name}</div>
+          <!-- Seat bar -->
+          <div class="mt-2.5 space-y-1">
+            <div class="flex justify-between text-[11px] text-slate-400">
+              <span>可用座位</span>
+              <span class="font-medium ${availColor(avail, s.open_seat_num)}">
+                ${avail > 0 ? avail + ' 个可用' : '已满座'}
+              </span>
+            </div>
+            <div class="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div class="h-full rounded-full transition-all ${progressColor(avail)}" style="width:${pct}%"></div>
+            </div>
+            <div class="text-[10px] text-slate-400">
+              学生 ${s.student_num} · 教师 ${s.teacher_num} · 共 ${s.open_seat_num} 席
+            </div>
+          </div>
+        </div>
+        <!-- Action button -->
+        <button onclick='addMonitor(${JSON.stringify(s)})'
+          class="flex-shrink-0 mt-1 px-3 py-2 rounded-xl text-xs font-semibold transition
+                 ${avail > 0
+                   ? 'bg-blue-500 text-white shadow-sm shadow-blue-200 active:opacity-80'
+                   : 'bg-slate-100 text-slate-500 active:opacity-70'}">
+          ${avail > 0 ? '预定监控' : '加入监控'}
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── Monitor ───────────────────────────────────────────────────
+async function addMonitor(schedule) {
+  if (!state.barkUrl) {
+    toast('请先在「设置」中配置 Bark 通知 URL', 'warning');
+    switchTab('settings');
+    return;
+  }
+  const res = await api('POST', '/api/monitor/start', { schedule, bark_url: state.barkUrl });
+  if (res.success) {
+    toast(res.message, 'success');
+    loadMonitors();
+    // Show badge
+    if (state.activeTab !== 'monitor') showMonitorBadge();
+  } else {
+    toast(res.message || '添加监控失败', 'error');
+  }
+}
+
+async function stopMonitor(taskId) {
+  const res = await api('POST', '/api/monitor/stop', { task_id: taskId });
+  if (res.success) { toast('监控已停止'); loadMonitors(); }
+}
+
+function statusLabel(status) {
+  const map = {
+    monitoring: { text: '监控中', cls: 'bg-blue-100 text-blue-600' },
+    found:      { text: '已找到空位', cls: 'bg-emerald-100 text-emerald-600' },
+    error:      { text: '检查异常', cls: 'bg-red-100 text-red-500' },
+    stopped:    { text: '已停止', cls: 'bg-slate-100 text-slate-500' },
+  };
+  return map[status] || { text: status, cls: 'bg-slate-100 text-slate-500' };
+}
+
+function renderMonitors() {
+  const list = $('monitor-list');
+  const empty = $('monitor-empty');
+  const tasks = state.monitors;
+
+  if (!tasks.length) { list.innerHTML = ''; show('monitor-empty'); return; }
+  hide('monitor-empty');
+
+  const activeCnt = tasks.filter(t => t.active).length;
+  const badge = $('monitor-badge');
+  if (activeCnt > 0) {
+    badge.textContent = activeCnt;
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+
+  list.innerHTML = tasks.map(t => {
+    const s = t.schedule;
+    const avail = t.last_check ? t.last_check.available : null;
+    const sl = statusLabel(t.status);
+    return `
+    <div class="bg-white rounded-2xl shadow-sm p-4 slide-up">
+      <div class="flex items-start justify-between gap-2">
+        <div class="flex-1">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-base font-bold text-slate-800">${s.depart_time}</span>
+            <span class="text-xs text-slate-500">${s.up_origin_name}→${s.up_terminal_name}</span>
+            <span class="text-[11px] px-2 py-0.5 rounded-full font-medium ${sl.cls}">${sl.text}</span>
+          </div>
+          <div class="text-xs text-slate-400 mt-1">${s.shifts_date}</div>
+          ${t.last_check ? `
+          <div class="mt-2 flex items-center gap-3 text-[11px] text-slate-500">
+            <span>最近检查: ${t.last_check.time}</span>
+            <span class="${t.last_check.available > 0 ? 'text-emerald-500' : 'text-slate-400'} font-medium">
+              空余 ${t.last_check.available}/${t.last_check.total} 席
+            </span>
+          </div>` : `<div class="mt-1 text-[11px] text-slate-400">等待首次检查…</div>`}
+        </div>
+        ${t.active ? `
+        <button onclick="stopMonitor('${t.task_id}')"
+          class="flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium bg-slate-100 text-slate-500 active:opacity-70 transition">
+          停止
+        </button>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function loadMonitors() {
+  const res = await api('GET', '/api/monitor/list');
+  if (res.success) {
+    state.monitors = res.tasks;
+    renderMonitors();
+  }
+}
+
+function startMonitorPoll() {
+  loadMonitors();
+  if (monitorPollTimer) clearInterval(monitorPollTimer);
+  monitorPollTimer = setInterval(loadMonitors, 5000);
+}
+
+function showMonitorBadge() {
+  const b = $('monitor-badge');
+  const cur = parseInt(b.textContent || '0') + 1;
+  b.textContent = cur;
+  b.classList.remove('hidden');
+}
+
+// ── Settings ──────────────────────────────────────────────────
+async function saveBarkUrl() {
+  const url = $('inp-bark').value.trim();
+  const res = await api('POST', '/api/bark_url', { bark_url: url });
+  if (res.success) {
+    state.barkUrl = url;
+    toast('Bark URL 已保存', 'success');
+  } else {
+    toast(res.message || '保存失败', 'error');
+  }
+}
+
+// ── Tab switching ─────────────────────────────────────────────
+function switchTab(tab) {
+  state.activeTab = tab;
+  ['schedule','monitor','settings'].forEach(t => {
+    const panel = $('panel-' + t);
+    const btn   = $('tab-' + t);
+    if (t === tab) {
+      panel.classList.remove('hidden');
+      btn.classList.add('text-blue-600','border-b-2','border-blue-500');
+      btn.classList.remove('text-slate-400');
+    } else {
+      panel.classList.add('hidden');
+      btn.classList.remove('text-blue-600','border-b-2','border-blue-500');
+      btn.classList.add('text-slate-400');
+    }
+  });
+  if (tab === 'monitor') {
+    $('monitor-badge').classList.add('hidden');
+    loadMonitors();
+  }
+}
+
+function showLogin() {
+  hide('app-screen');
+  show('login-screen');
+  if (monitorPollTimer) clearInterval(monitorPollTimer);
+}
+
+// ── Enter key on login ────────────────────────────────────────
+$('inp-pwd').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+$('inp-sid').addEventListener('keydown', e => { if (e.key === 'Enter') $('inp-pwd').focus(); });
+
+// ── Boot ──────────────────────────────────────────────────────
+checkSession();
+</script>
+</body>
+</html>
