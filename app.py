@@ -55,14 +55,18 @@ def patch_user(sid: str, updates: dict):
 
 # ── Monitor task ──────────────────────────────────────────────
 
+BUS_TICKET_PAGE = "http://zhihuixiaoche.buaa.edu.cn/wechat/ticketInfoPage"
+
+
 class MonitorTask:
     def __init__(self, task_id: str, student_id: str, schedule: dict,
-                 bark_url: str, bus_session: BusSession):
+                 bark_url: str, bus_session: BusSession, auto_buy: bool = False):
         self.task_id = task_id
         self.student_id = student_id
         self.schedule = schedule
         self.bark_url = bark_url
         self.bus_session = bus_session
+        self.auto_buy = auto_buy
         self.active = True
         self.status = "monitoring"   # monitoring | found | error | stopped
         self.last_check: dict | None = None
@@ -106,9 +110,19 @@ class MonitorTask:
                             "teachers": target.get("teacher_num", 0),
                         }
                         if avail > 0:
+                            pay_url = None
+                            if self.auto_buy:
+                                shifts_number = self.schedule.get("shifts_number", "")
+                                pay_url = (
+                                    f"{BUS_TICKET_PAGE}"
+                                    f"?shifts_number={urllib.parse.quote(str(shifts_number))}"
+                                    f"&shifts_date={urllib.parse.quote(date_str)}"
+                                )
                             self._bark(
                                 "校车有空位啦！",
-                                f"{depart} 班次 ({origin}→{dest}) 有 {avail} 个空位！",
+                                f"{depart} 班次 ({origin}→{dest}) 有 {avail} 个空位！"
+                                + (" 点击立即购票！" if pay_url else ""),
+                                url=pay_url,
                             )
                             self.status = "found"
                             self.active = False
@@ -125,15 +139,17 @@ class MonitorTask:
 
             time.sleep(10)
 
-    def _bark(self, title: str, body: str):
+    def _bark(self, title: str, body: str, url: str | None = None):
         if not self.bark_url:
             return
         base = self.bark_url.rstrip("/")
         if not base.startswith("http"):
             base = f"https://api.day.app/{base}"
-        url = f"{base}/{urllib.parse.quote(title)}/{urllib.parse.quote(body)}"
+        notify_url = f"{base}/{urllib.parse.quote(title)}/{urllib.parse.quote(body)}"
+        if url:
+            notify_url += f"?url={urllib.parse.quote(url, safe='')}"
         try:
-            requests.post(url, timeout=10)
+            requests.post(notify_url, timeout=10)
         except Exception as e:
             logger.warning("Bark notification failed: %s", e)
 
@@ -144,6 +160,7 @@ class MonitorTask:
             "active": self.active,
             "status": self.status,
             "last_check": self.last_check,
+            "auto_buy": self.auto_buy,
         }
 
 
@@ -246,6 +263,7 @@ def api_monitor_start():
     data = request.json or {}
     schedule = data.get("schedule", {})
     bark_url = data.get("bark_url", "").strip() or get_user(session["student_id"]).get("bark_url", "")
+    auto_buy = bool(data.get("auto_buy", False))
     sid = session["student_id"]
 
     if not bark_url:
@@ -263,16 +281,17 @@ def api_monitor_start():
         if existing and existing.active:
             return jsonify({"success": False, "message": "该班次已在监控中"})
 
-        task = MonitorTask(task_id, sid, schedule, bark_url, _get_bus_session())
+        task = MonitorTask(task_id, sid, schedule, bark_url, _get_bus_session(), auto_buy=auto_buy)
         task.start()
         user_tasks[task_id] = task
 
+    suffix = "（发现空位将推送购票链接）" if auto_buy else ""
     return jsonify({
         "success": True,
         "task_id": task_id,
         "message": (
             f"开始监控 {schedule.get('depart_time')} 班次 "
-            f"({schedule.get('up_origin_name')}→{schedule.get('up_terminal_name')})"
+            f"({schedule.get('up_origin_name')}→{schedule.get('up_terminal_name')}){suffix}"
         ),
     })
 

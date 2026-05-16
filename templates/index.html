@@ -396,6 +396,15 @@ function progressColor(avail) {
   return 'bg-emerald-400';
 }
 
+function getTaskId(s) {
+  return `${s.shifts_number}_${s.shifts_date}_${s.depart_time}`;
+}
+
+function isMonitored(s) {
+  const id = getTaskId(s);
+  return state.monitors.some(t => t.task_id === id && t.active);
+}
+
 function renderSchedules() {
   const list = $('schedule-list');
 
@@ -414,6 +423,20 @@ function renderSchedules() {
   list.innerHTML = state.schedules.map(s => {
     const avail = s.open_seat_num - s.student_num - s.teacher_num;
     const pct = progressWidth(avail, s.open_seat_num);
+    const monitored = isMonitored(s);
+    const btnBase = 'flex-shrink-0 mt-1 px-3 py-2 rounded-xl text-xs font-semibold transition';
+    const btnActive = 'bg-blue-500 text-white shadow-sm shadow-blue-200 active:opacity-80';
+    const btnGray = 'bg-slate-100 text-slate-400 cursor-not-allowed';
+    const btnGreen = 'bg-emerald-500 text-white shadow-sm shadow-emerald-200 active:opacity-80';
+
+    const monitorBtn = monitored
+      ? `<button disabled class="${btnBase} ${btnGray}">监控中…</button>`
+      : `<button onclick='addMonitor(${JSON.stringify(s)})' class="${btnBase} ${btnActive}">加入监控</button>`;
+
+    const buyBtn = monitored
+      ? ''
+      : `<button onclick='addMonitorAndBuy(${JSON.stringify(s)})' class="${btnBase} ${btnGreen} mt-1.5">监控并购买</button>`;
+
     return `
     <div class="bg-white rounded-2xl shadow-sm p-4 slide-up border ${availBg(avail, s.open_seat_num)}">
       <div class="flex items-start justify-between gap-3">
@@ -439,35 +462,40 @@ function renderSchedules() {
             </div>
           </div>
         </div>
-        <!-- Action button -->
-        <button onclick='addMonitor(${JSON.stringify(s)})'
-          class="flex-shrink-0 mt-1 px-3 py-2 rounded-xl text-xs font-semibold transition
-                 ${avail > 0
-                   ? 'bg-blue-500 text-white shadow-sm shadow-blue-200 active:opacity-80'
-                   : 'bg-slate-100 text-slate-500 active:opacity-70'}">
-          ${avail > 0 ? '预定监控' : '加入监控'}
-        </button>
+        <!-- Action buttons -->
+        <div class="flex flex-col items-end gap-0">
+          ${monitorBtn}
+          ${buyBtn}
+        </div>
       </div>
     </div>`;
   }).join('');
 }
 
 // ── Monitor ───────────────────────────────────────────────────
-async function addMonitor(schedule) {
+async function addMonitor(schedule, autoBuy = false) {
   if (!state.barkUrl) {
     toast('请先在「设置」中配置 Bark 通知 URL', 'warning');
     switchTab('settings');
     return;
   }
-  const res = await api('POST', '/api/monitor/start', { schedule, bark_url: state.barkUrl });
+  const res = await api('POST', '/api/monitor/start', {
+    schedule,
+    bark_url: state.barkUrl,
+    auto_buy: autoBuy,
+  });
   if (res.success) {
     toast(res.message, 'success');
-    loadMonitors();
-    // Show badge
+    await loadMonitors();
+    renderSchedules();
     if (state.activeTab !== 'monitor') showMonitorBadge();
   } else {
     toast(res.message || '添加监控失败', 'error');
   }
+}
+
+async function addMonitorAndBuy(schedule) {
+  await addMonitor(schedule, true);
 }
 
 async function stopMonitor(taskId) {
@@ -537,8 +565,14 @@ function renderMonitors() {
 async function loadMonitors() {
   const res = await api('GET', '/api/monitor/list');
   if (res.success) {
+    const prevActiveIds = state.monitors.filter(t => t.active).map(t => t.task_id).sort().join(',');
     state.monitors = res.tasks;
     renderMonitors();
+    // Re-render schedule buttons if active monitor set changed
+    const newActiveIds = state.monitors.filter(t => t.active).map(t => t.task_id).sort().join(',');
+    if (prevActiveIds !== newActiveIds && state.schedules.length) {
+      renderSchedules();
+    }
   }
 }
 
