@@ -11,7 +11,7 @@ from datetime import date
 from pathlib import Path
 
 import requests
-from flask import Flask, jsonify, render_template, request, session
+from flask import Flask, jsonify, redirect, render_template, request, session
 
 from buaa_auth import BusSession, login
 
@@ -22,6 +22,8 @@ app = Flask(__name__)
 app.secret_key = "buaa-bus-monitor-2024-xK9mP3qR"
 
 DATA_FILE = Path("./users_data.json")
+# Public base URL for Bark notification links (set to your server's address)
+PUBLIC_BASE_URL = "http://localhost:5000"
 
 # In-memory monitor registry  {student_id: {task_id: MonitorTask}}
 _monitors: dict[str, dict[str, "MonitorTask"]] = {}
@@ -112,11 +114,10 @@ class MonitorTask:
                         if avail > 0:
                             pay_url = None
                             if self.auto_buy:
-                                shifts_number = self.schedule.get("shifts_number", "")
                                 pay_url = (
-                                    f"{BUS_TICKET_PAGE}"
-                                    f"?shifts_number={urllib.parse.quote(str(shifts_number))}"
-                                    f"&shifts_date={urllib.parse.quote(date_str)}"
+                                    f"{PUBLIC_BASE_URL}/buy"
+                                    f"/{urllib.parse.quote(self.student_id)}"
+                                    f"/{urllib.parse.quote(self.task_id)}"
                                 )
                             self._bark(
                                 "校车有空位啦！",
@@ -214,12 +215,7 @@ def api_login():
 
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
-    sid = session.get("student_id")
-    if sid:
-        with _monitor_lock:
-            for task in _monitors.get(sid, {}).values():
-                task.stop()
-            _monitors.pop(sid, None)
+    # Monitors keep running after logout; they hold their own BusSession copy
     session.clear()
     return jsonify({"success": True})
 
@@ -325,6 +321,30 @@ def api_monitor_list():
         tasks = [t.to_dict() for t in _monitors.get(sid, {}).values()]
 
     return jsonify({"success": True, "tasks": tasks})
+
+
+@app.route("/buy/<student_id>/<task_id>")
+def buy_redirect(student_id: str, task_id: str):
+    """
+    Redirect link embedded in Bark notifications.
+    Opens ticketInfoPage in whatever browser the user taps from (WeChat, Safari, etc.).
+    The link carries no session — it lands on the BUAA bus site which the user
+    must already be logged into via WeChat/browser, or they log in there.
+    """
+    with _monitor_lock:
+        task = _monitors.get(student_id, {}).get(task_id)
+
+    if not task:
+        return "监控任务不存在或已结束", 404
+
+    shifts_number = task.schedule.get("shifts_number", "")
+    shifts_date = task.schedule.get("shifts_date", "")
+    target = (
+        f"{BUS_TICKET_PAGE}"
+        f"?shifts_number={urllib.parse.quote(str(shifts_number))}"
+        f"&shifts_date={urllib.parse.quote(shifts_date)}"
+    )
+    return redirect(target)
 
 
 if __name__ == "__main__":
